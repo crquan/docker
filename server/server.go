@@ -1135,6 +1135,15 @@ func (srv *Server) pullImage(r *registry.Registry, out io.Writer, imgID, endpoin
 				}
 			}
 
+			tmpfile, err := srv.daemon.Graph().MktempFile("_layer")
+			if err != nil {
+				utils.Debugf("create temp file failed: %#v", err)
+				return err
+			}
+			defer tmpfile.Close()
+			defer os.Remove(tmpfile.Name())
+
+			written := int64(0)
 			for j := 1; j <= retries; j++ {
 				// Get the layer
 				status := "Pulling fs layer"
@@ -1142,7 +1151,7 @@ func (srv *Server) pullImage(r *registry.Registry, out io.Writer, imgID, endpoin
 					status = fmt.Sprintf("Pulling fs layer [retries: %d]", j)
 				}
 				out.Write(sf.FormatProgress(utils.TruncateID(id), status, nil))
-				layer, err := r.GetRemoteImageLayer(img.ID, endpoint, token)
+				layer, err := r.GetRemoteImageLayer(img.ID, endpoint, token, written)
 				if uerr, ok := err.(*url.Error); ok {
 					err = uerr.Err
 				}
@@ -1155,21 +1164,40 @@ func (srv *Server) pullImage(r *registry.Registry, out io.Writer, imgID, endpoin
 				}
 				defer layer.Close()
 
-				err = srv.daemon.Graph().Register(imgJSON,
-					utils.ProgressReader(layer, imgSize, out, sf, false, utils.TruncateID(id), "Downloading"),
-					img)
+				progress := utils.ProgressReader(layer, imgSize, out, sf, false, utils.TruncateID(id), "Downloading")
+				progress.SetCurrent(int(written))
+
+				nwritten, err := io.Copy(tmpfile, progress)
 				if terr, ok := err.(net.Error); ok && terr.Timeout() && j < retries {
+					written += nwritten
 					time.Sleep(time.Duration(j) * 500 * time.Millisecond)
 					continue
 				} else if err != nil {
 					out.Write(sf.FormatProgress(utils.TruncateID(id), "Error downloading dependent layers", nil))
+					return err
+				}
+
+				written += nwritten
+				if written < int64(imgSize) && j < retries {
+					// not fully downloaded, try resume downloading
+					continue
+				}
+
+				out.Write(sf.FormatProgress(utils.TruncateID(id), "Download complete", nil))
+
+				tmpfile.Seek(0, 0)
+				err = srv.daemon.Graph().Register(imgJSON,
+					utils.ProgressReader(tmpfile, imgSize, out, sf, false, utils.TruncateID(id), "Extracting"),
+					img)
+				if err != nil {
+					out.Write(sf.FormatProgress(utils.TruncateID(id), "Error extracting dependent layers", nil))
 					return err
 				} else {
 					break
 				}
 			}
 		}
-		out.Write(sf.FormatProgress(utils.TruncateID(id), "Download complete", nil))
+		out.Write(sf.FormatProgress(utils.TruncateID(id), "Extract complete", nil))
 
 	}
 	return nil

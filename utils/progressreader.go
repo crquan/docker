@@ -42,6 +42,11 @@ func (r *progressReader) Close() error {
 	r.output.Write(r.sf.FormatProgress(r.ID, r.action, &r.progress))
 	return r.reader.Close()
 }
+
+func (r *progressReader) SetCurrent(curr int) {
+	r.progress.Current = curr
+}
+
 func ProgressReader(r io.ReadCloser, size int, output io.Writer, sf *StreamFormatter, newline bool, ID, action string) *progressReader {
 	return &progressReader{
 		reader:   r,

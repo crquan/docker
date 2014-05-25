@@ -256,17 +256,26 @@ func (r *Registry) GetRemoteImageJSON(imgID, registry string, token []string) ([
 	return jsonString, imageSize, nil
 }
 
-func (r *Registry) GetRemoteImageLayer(imgID, registry string, token []string) (io.ReadCloser, error) {
+func (r *Registry) GetRemoteImageLayer(imgID, registry string, token []string, resume int64) (io.ReadCloser, error) {
 	req, err := r.reqFactory.NewRequest("GET", registry+"images/"+imgID+"/layer", nil)
 	if err != nil {
 		return nil, fmt.Errorf("Error while getting from the server: %s\n", err)
 	}
 	setTokenAuth(req, token)
+	if resume > 0 {
+		utils.Debugf("resume downloading from bytes=%d-", resume)
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", resume))
+	}
+
 	res, err := r.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	if res.StatusCode != 200 {
+
+	switch res.StatusCode {
+	case 200, 206:
+		break
+	default:
 		res.Body.Close()
 		return nil, fmt.Errorf("Server error: Status %d while fetching image layer (%s)",
 			res.StatusCode, imgID)

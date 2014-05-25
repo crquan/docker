@@ -246,6 +246,11 @@ func (graph *Graph) Mktemp(id string) (string, error) {
 	return dir, nil
 }
 
+// Mktemp creates a temporary file inside the graph's filesystem.
+func (graph *Graph) MktempFile(id string) (f *os.File, err error) {
+	return ioutil.TempFile(graph.Root, "_tmp"+id)
+}
+
 // setupInitLayer populates a directory with mountpoints suitable
 // for bind-mounting dockerinit into the container. The mountpoint is simply an
 // empty file at /.dockerinit
