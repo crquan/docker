@@ -18,13 +18,16 @@ func (daemon *Daemon) ContainerRename(job *engine.Job) engine.Status {
 
 	container.Lock()
 	defer container.Unlock()
-	if err := daemon.containerGraph.Delete(container.Name); err != nil {
-		return job.Errorf("Failed to delete container %q: %v", old_name, err)
-	}
+
+	old_name = container.Name
 	if _, err := daemon.reserveName(container.ID, new_name); err != nil {
 		return job.Errorf("Error when allocating new name: %s", err)
 	}
 	container.Name = new_name
+
+	if err := daemon.containerGraph.Delete(old_name); err != nil {
+		return job.Errorf("Failed to delete container %q: %v", old_name, err)
+	}
 
 	return engine.StatusOK
 }
